@@ -411,7 +411,7 @@ function runCommand() {
         /u:"$WS_USER" \
         ${RDP_PASSWORD_ARG} \
         +auto-reconnect \
-        /app:program:"$WIN_EXECUTABLE",hidef:"$HIDEF" \
+        /app:program:"$WIN_EXECUTABLE" \
         ${DRIVE_ARGS} \
         +clipboard &>/dev/null &
 
@@ -427,7 +427,7 @@ function runCommand() {
         /u:"$WS_USER" \
         ${RDP_PASSWORD_ARG} \
         +auto-reconnect \
-        /app:program:"$WIN_EXECUTABLE",hidef:"$HIDEF" \
+        /app:program:"$WIN_EXECUTABLE" \
         ${DRIVE_ARGS} \
         +clipboard &>/dev/null &
 
