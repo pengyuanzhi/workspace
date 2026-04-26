@@ -1,0 +1,6 @@
+# 应用配置文件
+# 自动生成于 2026-04-25 22:25:32
+
+# Windows 应用路径
+WIN_EXECUTABLE="C:\OlympusNDT\TomoView210\TomoView210.exe"
+

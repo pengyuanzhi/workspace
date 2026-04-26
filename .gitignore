@@ -1,0 +1,11 @@
+# Build artifacts
+build/
+rpmbuild/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller
+*.spec.bak

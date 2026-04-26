@@ -1,0 +1,6 @@
+# 应用配置文件
+# 自动生成于 2026-04-25 22:25:16
+
+# Windows 应用路径
+WIN_EXECUTABLE="C:\Program Files (x86)\LU系统\LU移动式轮辋轮辐探伤系统V7.1.1.8\LU_Measurement.exe"
+
