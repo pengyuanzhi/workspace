@@ -405,27 +405,29 @@ function runCommand() {
 
     if [ -z "$2" ]; then
         dprint "启动应用: $WIN_EXECUTABLE"
-        # dprint "启动参数: $CLIENT_COMMAND /v:$WS_IP:$WS_PORT /u:$WS_USER /p:*** /app:$WIN_EXECUTABLE${DRIVE_ARGS} +clipboard"
         $CLIENT_COMMAND \
+        /cert:tofu \
         /v:"$WS_IP:$WS_PORT" \
         /u:"$WS_USER" \
-        /p:"$WS_PASS" \
-        /app:program:"$WIN_EXECUTABLE" \
+        ${RDP_PASSWORD_ARG} \
+        +auto-reconnect \
+        /app:program:"$WIN_EXECUTABLE",hidef:"$HIDEF" \
         ${DRIVE_ARGS} \
         +clipboard &>/dev/null &
 
         CLIENT_PID=$!
     else
         # 文件打开功能暂不支持（/app-cmd 参数可能在某些版本中不可用）
-        dprint "启动应用: $WIN_EXECUTABLE" 
+        dprint "启动应用: $WIN_EXECUTABLE"
         dprint "文件参数: $2"
         dprint "注意: 文件参数暂不支持，将通过磁盘重定向访问文件"
-        # dprint "启动参数: $CLIENT_COMMAND /v:$WS_IP:$WS_PORT /u:$WS_USER /p:*** /app:$WIN_EXECUTABLE${DRIVE_ARGS} +clipboard"
         $CLIENT_COMMAND \
+        /cert:tofu \
         /v:"$WS_IP:$WS_PORT" \
         /u:"$WS_USER" \
-        /p:"$WS_PASS" \
-        /app:program:"$WIN_EXECUTABLE" \
+        ${RDP_PASSWORD_ARG} \
+        +auto-reconnect \
+        /app:program:"$WIN_EXECUTABLE",hidef:"$HIDEF" \
         ${DRIVE_ARGS} \
         +clipboard &>/dev/null &
 
@@ -546,55 +548,6 @@ fi
 
 checkPortOpen
 timeSync
-
-# 预登录：先建立 Windows 会话，确保 RemoteApp 能正常启动
-# 如果没有活跃的 RDP 会话，FreeRDP 的 /app: 模式会失败
-function ensureRDPSession() {
-    # 检查是否已有活跃的 RDP 会话（通过标记文件判断）
-    local session_marker="${APPDATA_PATH}/rdp_session_active"
-    local session_age=0
-
-    if [ -f "$session_marker" ]; then
-        session_age=$(( $(date +%s) - $(stat -c %Y "$session_marker" 2>/dev/null || echo 0) ))
-        # 如果标记文件在 300 秒（5分钟）内更新过，认为会话仍然活跃
-        if [ "$session_age" -lt 300 ]; then
-            dprint "已有活跃 RDP 会话（${session_age}秒前），跳过预登录"
-            return
-        fi
-    fi
-
-    dprint "执行预登录，建立 Windows 会话..."
-    $CLIENT_COMMAND \
-        /v:"$WS_IP:$WS_PORT" \
-        /u:"$WS_USER" \
-        /p:"$WS_PASS" \
-        +clipboard \
-        /cert:ignore \
-        /timeout:30000 &>/dev/null &
-    local login_pid=$!
-
-    # 等待登录完成（最多 15 秒）
-    local waited=0
-    while [ $waited -lt 15 ]; do
-        sleep 1
-        waited=$((waited + 1))
-        # 如果进程已结束，说明连接失败，但可能已建立了会话
-        if [ ! -d "/proc/$login_pid" ] 2>/dev/null; then
-            break
-        fi
-    done
-
-    # 终止预登录连接（只需要建立会话，不需要保持桌面）
-    kill $login_pid &>/dev/null 2>&1
-    wait $login_pid &>/dev/null 2>&1
-
-    # 更新会话标记
-    touch "$session_marker"
-    dprint "预登录完成"
-}
-
-ensureRDPSession
-
 runCommand "$@"
 
 if [[ "$AUTOPAUSE" == "on" ]]; then
