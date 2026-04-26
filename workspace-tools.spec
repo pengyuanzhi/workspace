@@ -137,6 +137,8 @@ fi
 %{install_dir}/.rpm-info
 %dir %{bin_dir}
 %{bin_dir}/*
+%dir %{apps_dir}
+%{apps_dir}/*
 %{_bindir}/*
 
 %changelog
