@@ -21,8 +21,9 @@ readonly EC_INVALID_FLAVOR=15
 readonly EC_NO_DISPLAY=16
 
 # PATHS
+# 工作区根目录（固定路径，可通过环境变量 WORKSPACE_DIR 覆盖）
 # shellcheck disable=SC2155
-readonly SCRIPT_DIR_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+readonly SCRIPT_DIR_PATH="${WORKSPACE_DIR:-/opt/workspace}"
 
 # 应用数据目录
 readonly APPDATA_PATH="${SCRIPT_DIR_PATH}/apps"

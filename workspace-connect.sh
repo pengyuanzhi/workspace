@@ -129,35 +129,18 @@ read_config() {
     local script_dir
     local key value
     
-    # 优先级：1. 命令行参数 > 2. 环境变量 > 3. 当前目录 > 4. 程序目录 > 5. 用户目录 > 6. 系统扫描
-    
+    # 优先级：1. 命令行参数 > 2. 环境变量 > 3. 固定安装路径 > 4. 用户目录
+
     # 1. 使用全局变量（来自命令行参数）
     if [ -n "$CONFIG_FILE_PATH" ]; then
         config_file="$CONFIG_FILE_PATH"
     # 2. 使用环境变量
     elif [ -n "$WORKSPACE_CONFIG" ]; then
         config_file="$WORKSPACE_CONFIG"
-    # 3. 查找当前目录下的 workspace.conf
-    elif [ -f "./workspace.conf" ]; then
-        config_file="./workspace.conf"
-    # 4. 查找程序所在目录下的 workspace.conf
-    elif [ -n "$0" ] && [ "$0" != "bash" ] && [ "$0" != "sh" ]; then
-        script_dir=$(dirname "$0")
-        conf_path="${script_dir}/workspace.conf"
-        if [ -f "$conf_path" ]; then
-            config_file="$conf_path"
-        fi
-    # 4.5. 尝试使用 realpath 获取真实路径
-    elif [ -n "$0" ] && command -v realpath &> /dev/null; then
-        script_path=$(realpath "$0")
-        if [ -f "$script_path" ]; then
-            script_dir=$(dirname "$script_path")
-            conf_path="${script_dir}/workspace.conf"
-            if [ -f "$conf_path" ]; then
-                config_file="$conf_path"
-            fi
-        fi
-    # 5. 查找用户主目录下的配置文件（向后兼容）
+    # 3. 固定安装路径
+    elif [ -f "/opt/workspace/workspace.conf" ]; then
+        config_file="/opt/workspace/workspace.conf"
+    # 4. 查找用户主目录下的配置文件
     elif [ -f "$HOME/.config/appsphere/appsphere.conf" ]; then
         config_file="$HOME/.config/appsphere/appsphere.conf"
     # 6. 尝试检测实际的用户主目录（如果是root用户）

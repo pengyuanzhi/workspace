@@ -16,8 +16,8 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# 当前工作目录（所有路径都相对于执行命令的目录）
-SCRIPT_DIR="$(pwd)"
+# 工作区根目录（固定路径，可通过环境变量 WORKSPACE_DIR 覆盖）
+SCRIPT_DIR="${WORKSPACE_DIR:-/opt/workspace}"
 
 # 检测实际用户（处理 sudo 情况）
 # 优先级：SUDO_USER > pkexec 环境变量 > 登录用户
