@@ -33,7 +33,7 @@ REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
 
 # 始终使用当前工作目录
 APPS_DIR="$SCRIPT_DIR/apps"
-LAUNCHER_SCRIPT="$SCRIPT_DIR/workspace-launcher"
+LAUNCHER_SCRIPT="$SCRIPT_DIR/bin/workspace-launcher"
 
 # 确保 apps 目录存在
 mkdir -p "$APPS_DIR"
