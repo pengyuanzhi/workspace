@@ -16,9 +16,7 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# 脚本所在目录（用于定位启动器）
-SCRIPT_FILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-# 当前工作目录（用于定位 apps 目录）
+# 当前工作目录（所有路径都相对于执行命令的目录）
 SCRIPT_DIR="$(pwd)"
 
 # 检测实际用户（处理 sudo 情况）
@@ -33,21 +31,9 @@ fi
 REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
 [ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
 
-# 检测应用目录位置（优先使用当前工作目录）
-if [ -d "$SCRIPT_DIR/apps" ]; then
-    APPS_DIR="$SCRIPT_DIR/apps"
-    LAUNCHER_SCRIPT="$SCRIPT_DIR/workspace-launcher"
-elif [ -d "$SCRIPT_FILE_DIR/apps" ]; then
-    # 回退到脚本所在目录
-    APPS_DIR="$SCRIPT_FILE_DIR/apps"
-    LAUNCHER_SCRIPT="$SCRIPT_FILE_DIR/workspace-launcher"
-    SCRIPT_DIR="$SCRIPT_FILE_DIR"
-else
-    # 默认在当前工作目录创建
-    APPS_DIR="$SCRIPT_DIR/apps"
-    LAUNCHER_SCRIPT="$SCRIPT_DIR/workspace-launcher"
-    mkdir -p "$APPS_DIR"
-fi
+# 始终使用当前工作目录
+APPS_DIR="$SCRIPT_DIR/apps"
+LAUNCHER_SCRIPT="$SCRIPT_DIR/workspace-launcher"
 
 # 确保 apps 目录存在
 mkdir -p "$APPS_DIR"
