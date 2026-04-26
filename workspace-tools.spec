@@ -38,6 +38,7 @@ rm -rf %{buildroot}
 
 # 创建目标目录
 mkdir -p %{buildroot}%{bin_dir}
+mkdir -p %{buildroot}%{apps_dir}
 mkdir -p %{buildroot}%{_bindir}
 
 # 复制二进制文件到 bin 目录
@@ -45,9 +46,8 @@ if [ -d "bin" ]; then
     find bin -type f -executable -exec cp -p {} %{buildroot}%{bin_dir}/ \;
 fi
 
-# 复制 apps 目录（如果存在）
-if [ -d "apps" ]; then
-    mkdir -p %{buildroot}%{apps_dir}
+# 复制 apps 目录（如果存在且非空）
+if [ -d "apps" ] && [ "$(ls -A apps 2>/dev/null)" ]; then
     cp -r apps/* %{buildroot}%{apps_dir}/ 2>/dev/null || true
 fi
 
@@ -138,7 +138,6 @@ fi
 %dir %{bin_dir}
 %{bin_dir}/*
 %dir %{apps_dir}
-%{apps_dir}/*
 %{_bindir}/*
 
 %changelog
