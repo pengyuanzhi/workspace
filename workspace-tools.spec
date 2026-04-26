@@ -94,8 +94,7 @@ fi
 
 if [ -d "%{apps_dir}" ]; then
     chown -R root:root %{apps_dir}
-    find %{apps_dir} -type f -exec chmod 644 {} \;
-    find %{apps_dir} -type d -exec chmod 755 {} \;
+    find %{apps_dir} -type d -exec chmod 777 {} \;
 fi
 
 # 刷新系统路径
