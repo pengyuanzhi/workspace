@@ -214,16 +214,6 @@ if [ $? -eq 0 ]; then
         echo -e "${BLUE}或复制到仓库后:${NC}"
         echo "  sudo dnf install ${PACKAGE_NAME}"
         echo ""
-
-        # 询问是否立即安装
-        read -p "是否立即安装此 RPM 包? \(y/N\): " install_now
-        if [[ "$install_now" =~ ^[Yy]$ ]]; then
-            echo ""
-            echo "安装中..."
-            sudo dnf install -y "$RPM_FILE"
-            echo ""
-            echo -e "${GREEN}✓ 安装完成${NC}"
-        fi
     else
         echo -e "${RED}✗ 未找到 RPM 文件${NC}"
         exit 1
