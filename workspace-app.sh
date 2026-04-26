@@ -16,31 +16,34 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# 脚本目录
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# 脚本所在目录（用于定位启动器）
+SCRIPT_FILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# 当前工作目录（用于定位 apps 目录）
+SCRIPT_DIR="$(pwd)"
 
 # 检测实际用户（处理 sudo 情况）
-REAL_USER="${SUDO_USER:-$(whoami)}"
-REAL_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
-
-# 如果当前工作目录在 /root/.openclaw/workspace/ws 下且不是 root 用户，则使用用户 home 目录
-if [[ "$SCRIPT_DIR" == /root/.openclaw/workspace/ws ]] && [[ "$(whoami)" != "root" ]]; then
-    # 对于普通用户，使用用户 home 目录
-    SCRIPT_DIR="$REAL_HOME/workspace"
-    show_info "工作区目录: $SCRIPT_DIR"
+# 优先级：SUDO_USER > pkexec 环境变量 > 登录用户
+REAL_USER="${SUDO_USER:-${PKEXEC_UID:-}}"
+if [ -z "$REAL_USER" ] || [ "$REAL_USER" = "root" ]; then
+    # 尝试获取图形会话的登录用户
+    REAL_USER="$(loginctl show-session $(loginctl | grep $(who | head -1 | awk '{print $2}') 2>/dev/null | awk '{print $1}') -p Name 2>/dev/null | cut -d= -f2)"
+    [ -z "$REAL_USER" ] && REAL_USER="$(who | head -1 | awk '{print $1}')"
 fi
+[ -z "$REAL_USER" ] && REAL_USER="$(whoami)"
+REAL_HOME="$(getent passwd "$REAL_USER" 2>/dev/null | cut -d: -f6)"
+[ -z "$REAL_HOME" ] && REAL_HOME="/home/$REAL_USER"
 
-# 检测应用目录位置
+# 检测应用目录位置（优先使用当前工作目录）
 if [ -d "$SCRIPT_DIR/apps" ]; then
-    # 新布局：/path/to/workspace/apps（优先）
     APPS_DIR="$SCRIPT_DIR/apps"
     LAUNCHER_SCRIPT="$SCRIPT_DIR/workspace-launcher"
-elif [ -d "$SCRIPT_DIR/ws/apps" ]; then
-    # 旧布局：/path/to/workspace/ws/apps
-    APPS_DIR="$SCRIPT_DIR/ws/apps"
-    LAUNCHER_SCRIPT="$SCRIPT_DIR/ws/workspace-launcher"
+elif [ -d "$SCRIPT_FILE_DIR/apps" ]; then
+    # 回退到脚本所在目录
+    APPS_DIR="$SCRIPT_FILE_DIR/apps"
+    LAUNCHER_SCRIPT="$SCRIPT_FILE_DIR/workspace-launcher"
+    SCRIPT_DIR="$SCRIPT_FILE_DIR"
 else
-    # 默认创建 apps 目录
+    # 默认在当前工作目录创建
     APPS_DIR="$SCRIPT_DIR/apps"
     LAUNCHER_SCRIPT="$SCRIPT_DIR/workspace-launcher"
     mkdir -p "$APPS_DIR"
@@ -48,12 +51,6 @@ fi
 
 # 确保 apps 目录存在
 mkdir -p "$APPS_DIR"
-
-# 检测 SUDO_USER (用于桌面快捷方式）
-SUDO_USER="${SUDO_USER:-}"
-if [ -z "$SUDO_USER" ]; then
-    SUDO_USER="$(who | head -1 | awk '{print $1}')"
-fi
 
 # 应用信息变量
 APP_NAME=""
@@ -300,8 +297,10 @@ add_app() {
     
     # 创建应用目录
     mkdir -p "$app_dir"
-    # 设置正确的权限（允许脚本所在用户组访问）
-    chown -R "$REAL_USER:$REAL_USER" "$app_dir" 2>/dev/null || true
+    # 设置正确的权限（归属为实际用户）
+    if [ "$(whoami)" = "root" ] && [ -n "$REAL_USER" ]; then
+        chown -R "$REAL_USER:$REAL_USER" "$app_dir" 2>/dev/null || true
+    fi
     show_success "已创建应用目录: ${app_dir}"
     
     # 生成配置文件
@@ -436,6 +435,8 @@ Categories=Application;
 EOF
     
     chmod 644 "$desktop_file"
+    # 修正文件归属为实际用户
+    chown "$REAL_USER:$REAL_USER" "$desktop_file" 2>/dev/null || true
     show_success "已创建桌面快捷方式: ${desktop_file}"
 }
 
