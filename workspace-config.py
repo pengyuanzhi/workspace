@@ -33,7 +33,7 @@ except ImportError:
     sys.exit(1)
 
 # 配置文件路径
-WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
+WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", "/opt/workspace")
 WORKSPACE_CONF = os.path.join(WORKSPACE_DIR, "workspace.conf")
 LIBVIRT_DIR = "/etc/libvirt/qemu"
 VM_XML_FILE = os.path.join(LIBVIRT_DIR, "WorkspaceVM.xml")

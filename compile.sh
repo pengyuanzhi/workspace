@@ -234,11 +234,11 @@ if [ "$(whoami)" != "root" ]; then
     echo "需要 root 权限"
     exit 1
 fi
-TARGET="/home/sclead/workspace"
-# 不再备份，直接覆盖
+TARGET="${WORKSPACE_DIR:-/opt/workspace}"
+mkdir -p "$TARGET"
 cp -r "$(dirname "$0")"/* "$TARGET/"
-chmod +x "$TARGET"/*
-echo "安装完成"
+chmod +x "$TARGET"/* "$TARGET/bin/"* 2>/dev/null
+echo "安装完成: $TARGET"
 EOF
 chmod +x "${BUILD_DIR}/install.sh"
 echo -e "${GREEN}✓ 已创建安装脚本${NC}"

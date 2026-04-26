@@ -194,10 +194,10 @@ update_config() {
     local host="$1"
     local username="$2"
     local password="$3"
-    
-    # 如果没有配置文件，创建在当前目录下
+
+    # 固定写入 /opt/workspace/workspace.conf
     if [ -z "$CONFIG_FILE" ]; then
-        CONFIG_FILE="./workspace.conf"
+        CONFIG_FILE="/opt/workspace/workspace.conf"
     fi
     
     # 确保目录存在
