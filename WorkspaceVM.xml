@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<domain type="kvm">
+  <name>WorkspaceVM</name>
+  <uuid>d4289710-2454-42cd-9b56-9f6547ce1b91</uuid>
+  <memory unit="KiB">7340032</memory>
+  <currentMemory unit="KiB">7340032</currentMemory>
+  <vcpu placement="static">6</vcpu>
+  <os>
+    <type arch="x86_64" machine="pc-i440fx-8.2">hvm</type>
+    <boot dev="hd" />
+  </os>
+  <features>
+    <acpi />
+    <apic />
+    <kvm>
+      <hidden state="on" />
+    </kvm>
+  </features>
+  <cpu mode="host-model" check="partial" />
+  <clock offset="utc" />
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/libexec/qemu-kvm</emulator>
+    <controller type="pci" index="0" model="pci-root" />
+    <controller type="sata" index="0">
+      <address type="pci" domain="0x0000" bus="0x00" slot="0x04" function="0x0" />
+    </controller>
+    <controller type="usb" index="0" model="ehci">
+      <address type="pci" domain="0x0000" bus="0x00" slot="0x01" function="0x2" />
+    </controller>
+    <interface type="network">
+      <mac address="52:54:00:00:00:02" />
+      <source network="default" />
+      <model type="e1000" />
+      <address type="pci" domain="0x0000" bus="0x00" slot="0x03" function="0x0" />
+    </interface>
+    <input type="tablet" bus="usb">
+      <address type="usb" bus="0" port="1" />
+    </input>
+    <input type="mouse" bus="ps2" />
+    <input type="keyboard" bus="ps2" />
+    <graphics type="vnc" port="-1" autoport="yes" listen="0.0.0.0">
+      <listen type="address" address="0.0.0.0" />
+    </graphics>
+    <audio id="1" type="none" />
+    <video>
+      <model type="virtio" heads="1" primary="yes">
+        <acceleration accel3d="no" />
+      </model>
+      <address type="pci" domain="0x0000" bus="0x00" slot="0x02" function="0x0" />
+    </video>
+    <memballoon model="virtio">
+      <address type="pci" domain="0x0000" bus="0x00" slot="0x05" function="0x0" />
+    </memballoon>
+    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2" />
+      <source file="/home/sclead/images/win10.qcow2" />
+      <target dev="sda" bus="sata" />
+      <address type="drive" controller="0" bus="0" target="0" unit="0" />
+    </disk>
+    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2" />
+      <source file="/home/sclead/images/winapps-data.qcow2" />
+      <target dev="sdb" bus="sata" />
+      <address type="drive" controller="0" bus="0" target="0" unit="1" />
+    </disk>
+    <hostdev mode="subsystem" type="pci" managed="yes">
+      <source>
+        <address domain="0x0000" bus="02" slot="00" function="0" />
+      </source>
+    </hostdev>
+    <hostdev mode="subsystem" type="pci" managed="yes">
+      <source>
+        <address domain="0x0000" bus="03" slot="00" function="0" />
+      </source>
+    </hostdev>
+  </devices>
+</domain>
