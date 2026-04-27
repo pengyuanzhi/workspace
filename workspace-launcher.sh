@@ -253,16 +253,23 @@ function loadConfig() {
 }
 
 # 函数名：getClientCommand
-# 角色：获取客户端命令
+# 角色：获取客户端命令（优先使用与 workspace-connect 相同的二进制）
 function getClientCommand() {
     local CLIENT_MAJOR_VERSION=""
-    
-    # 检查 xfreerdp（简化版本检测）
+
+    # 优先使用 /usr/local/bin/xfreerdp（与 workspace-connect 一致）
+    if [ -x "/usr/local/bin/xfreerdp" ]; then
+        CLIENT_COMMAND="/usr/local/bin/xfreerdp"
+        dprint "使用 /usr/local/bin/xfreerdp"
+        return
+    fi
+
+    # 回退到 PATH 上的 xfreerdp
     if command -v xfreerdp &>/dev/null; then
         CLIENT_COMMAND="xfreerdp"
         return
     fi
-    
+
     # 检查 flatpak
     if command -v flatpak &>/dev/null && flatpak list --columns=application | grep -q "^com.freerdp.FreeRDP$"; then
         CLIENT_COMMAND="flatpak run --command=xfreerdp com.freerdp.FreeRDP"
@@ -272,8 +279,17 @@ function getClientCommand() {
     silentThrowExit "$EC_MISSING_CLIENT"
 }
 
+# 函数名：findVMIP
+# 角色：动态发现虚拟机 IP 地址（通过 ARP 表 + MAC 地址）
+function findVMIP() {
+    local VM_MAC
+    VM_MAC=$(virsh domiflist "$VM_NAME" 2>/dev/null | grep -oE "([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})" | head -1)
+    [ -z "$VM_MAC" ] && return
+    ip neigh show 2>/dev/null | grep -F -- "$VM_MAC" | grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" | head -1
+}
+
 # 函数名：checkVMRunning
-# 角色：检查虚拟机状态 (Libvirt)
+# 角色：检查虚拟机状态 (Libvirt)，参照 WinApps 健壮性逻辑
 function checkVMRunning() {
     local EXIT_STATUS=0
     local TIME_ELAPSED=0
@@ -289,18 +305,57 @@ function checkVMRunning() {
             dprint "VM 已暂停. 恢复中..."
             virsh resume "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_RESUME
         elif virsh list --state-other --name | grep -Fxq "$VM_NAME"; then
-            # 处理崩溃或正在关闭的状态
             local DOM_STATE
             DOM_STATE=$(virsh domstate "$VM_NAME" 2>/dev/null)
-            if [[ "$DOM_STATE" == "crashed" ]]; then
-                dprint "VM 崩溃. 尝试重启..."
-                virsh destroy "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_DESTROY
-                virsh start "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_START
-                NEEDED_BOOT=true
-            elif [[ "$DOM_STATE" == "in shutdown" ]]; then
-                dprint "VM 正在关闭. 等待..."
+            if [[ "$DOM_STATE" == "in shutdown" ]]; then
+                dprint "VM 正在关闭. 等待关闭完成后重启..."
                 EXIT_STATUS=$EC_SD_TIMEOUT
-                # 等待逻辑...
+                while (( TIME_ELAPSED < TIME_LIMIT )); do
+                    if virsh list --state-shutoff --name | grep -Fxq "$VM_NAME"; then
+                        EXIT_STATUS=0
+                        dprint "VM 已关机. 启动中..."
+                        virsh start "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_START
+                        NEEDED_BOOT=true
+                        break
+                    fi
+                    sleep $TIME_INTERVAL
+                    TIME_ELAPSED=$((TIME_ELAPSED + TIME_INTERVAL))
+                done
+            elif [[ "$DOM_STATE" == "crashed" ]]; then
+                dprint "VM 崩溃. 销毁并重启..."
+                virsh destroy "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_DESTROY
+                if [ "$EXIT_STATUS" -eq 0 ]; then
+                    dprint "VM 已销毁. 启动中..."
+                    virsh start "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_START
+                    NEEDED_BOOT=true
+                fi
+            elif [[ "$DOM_STATE" == "dying" ]]; then
+                dprint "VM 异常关闭. 等待..."
+                EXIT_STATUS=$EC_DIE_TIMEOUT
+                while (( TIME_ELAPSED < TIME_LIMIT )); do
+                    DOM_STATE=$(virsh domstate "$VM_NAME" 2>/dev/null)
+                    if [[ "$DOM_STATE" == "crashed" ]]; then
+                        EXIT_STATUS=0
+                        dprint "VM 崩溃. 销毁并重启..."
+                        virsh destroy "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_DESTROY
+                        if [ "$EXIT_STATUS" -eq 0 ]; then
+                            virsh start "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_START
+                            NEEDED_BOOT=true
+                        fi
+                        break
+                    elif virsh list --state-shutoff --name | grep -Fxq "$VM_NAME"; then
+                        EXIT_STATUS=0
+                        dprint "VM 已关机. 启动中..."
+                        virsh start "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_START
+                        NEEDED_BOOT=true
+                        break
+                    fi
+                    sleep $TIME_INTERVAL
+                    TIME_ELAPSED=$((TIME_ELAPSED + TIME_INTERVAL))
+                done
+            elif [[ "$DOM_STATE" == "pmsuspended" ]]; then
+                dprint "VM 已挂起. 恢复中..."
+                virsh resume "$VM_NAME" &>/dev/null || EXIT_STATUS=$EC_FAIL_RESUME
             fi
         fi
     else
@@ -309,20 +364,28 @@ function checkVMRunning() {
 
     [ "$EXIT_STATUS" -ne 0 ] && silentThrowExit "$EXIT_STATUS"
 
-    # 等待 VM 就绪
+    # 等待 VM 就绪（包括 RDP 端口可达）
     if [[ "$NEEDED_BOOT" == "true" ]]; then
         dprint "等待 VM 就绪..."
+        TIME_ELAPSED=0
         while (( TIME_ELAPSED < BOOT_TIMEOUT )); do
+            # 动态发现 IP（如果配置中没有固定 IP）
+            if [[ -z "$WS_IP" ]]; then
+                WS_IP=$(findVMIP)
+            fi
             if virsh list --state-running --name | grep -Fxq "$VM_NAME"; then
-                # 检查端口
-                if timeout 1 bash -c ">/dev/tcp/$WS_IP/$WS_PORT" 2>/dev/null; then
-                    dprint "VM 已就绪"
-                    sleep 10 # 额外缓冲
+                if [ -n "$WS_IP" ] && timeout 1 bash -c ">/dev/tcp/$WS_IP/$WS_PORT" 2>/dev/null; then
+                    dprint "VM 已就绪 (IP: $WS_IP)"
+                    sleep 10 # 额外缓冲，等待 Windows 完成初始化
                     break
                 fi
             fi
             sleep 5
             TIME_ELAPSED=$((TIME_ELAPSED + 5))
+            # 每 30 秒输出一次进度
+            if (( TIME_ELAPSED % 30 == 0 )); then
+                dprint "等待 VM 就绪... ($TIME_ELAPSED/$BOOT_TIMEOUT 秒)"
+            fi
         done
         (( TIME_ELAPSED >= BOOT_TIMEOUT )) && silentThrowExit $EC_FAIL_START
     fi
@@ -359,16 +422,52 @@ function checkDisplay() {
 }
 
 # 函数名：checkPortOpen
-# 角色：检查端口
+# 角色：检查端口，支持等待（处理 Windows 内部重启场景）
 function checkPortOpen() {
+    local TIME_ELAPSED=0
+    local TIME_LIMIT=30
+    local TIME_INTERVAL=5
+
+    # 动态发现 IP（如果配置中没有固定 IP）
     if [ -z "$WS_IP" ]; then
-        silentThrowExit $EC_NO_IP
+        while (( TIME_ELAPSED < TIME_LIMIT )); do
+            WS_IP=$(findVMIP)
+            [ -n "$WS_IP" ] && break
+            sleep $TIME_INTERVAL
+            TIME_ELAPSED=$((TIME_ELAPSED + TIME_INTERVAL))
+        done
+        [ -z "$WS_IP" ] && silentThrowExit $EC_NO_IP
+        dprint "动态发现 VM IP: $WS_IP"
     fi
-    timeout 10 nc -z "$WS_IP" "$WS_PORT" &>/dev/null || silentThrowExit "$EC_BAD_PORT"
+
+    # 快速检查：端口立即可达则直接返回
+    if timeout 3 nc -z "$WS_IP" "$WS_PORT" &>/dev/null; then
+        return
+    fi
+
+    # 端口不可达：VM 仍在运行但 Windows 可能正在内部重启
+    # 等待 RDP 端口恢复（最多 BOOT_TIMEOUT 秒）
+    dprint "RDP 端口不可达，等待 Windows 恢复..."
+    rm -f "${APPDATA_PATH}/rdp_session_active"
+    TIME_ELAPSED=0
+    while [ $TIME_ELAPSED -lt $BOOT_TIMEOUT ]; do
+        sleep 5
+        TIME_ELAPSED=$((TIME_ELAPSED + 5))
+        if timeout 3 nc -z "$WS_IP" "$WS_PORT" &>/dev/null; then
+            dprint "RDP 端口已恢复（等待了 ${TIME_ELAPSED} 秒），等待 Windows 初始化..."
+            sleep 10
+            return
+        fi
+        if (( TIME_ELAPSED % 30 == 0 )); then
+            dprint "等待 RDP 端口... ($TIME_ELAPSED/$BOOT_TIMEOUT 秒)"
+        fi
+    done
+
+    silentThrowExit "$EC_BAD_PORT"
 }
 
 # 函数名：runCommand
-# 角色：运行命令
+# 角色：运行命令（带自动重试：RemoteApp 失败时自动预登录后重试）
 function runCommand() {
     local ICON=""
     local FILE_PATH=""
@@ -403,43 +502,141 @@ function runCommand() {
         dprint "使用默认驱动映射"
     fi
 
-    if [ -z "$2" ]; then
-        dprint "启动应用: $WIN_EXECUTABLE"
+    # 最大重试次数（第一次尝试 + 重试）
+    local max_attempts=2
+    local attempt=1
+
+    while [ $attempt -le $max_attempts ]; do
+        dprint "启动应用 (尝试 $attempt/$max_attempts): $WIN_EXECUTABLE"
+        local start_time
+        start_time=$(date +%s)
+
         $CLIENT_COMMAND \
-        /cert:tofu \
+        /cert:ignore \
         /v:"$WS_IP:$WS_PORT" \
         /u:"$WS_USER" \
         ${RDP_PASSWORD_ARG} \
-        +auto-reconnect \
         /app:program:"$WIN_EXECUTABLE" \
         ${DRIVE_ARGS} \
-        +clipboard &>/dev/null &
+        +clipboard >>"$LOG_PATH" 2>&1 &
 
         CLIENT_PID=$!
-    else
-        # 文件打开功能暂不支持（/app-cmd 参数可能在某些版本中不可用）
-        dprint "启动应用: $WIN_EXECUTABLE"
-        dprint "文件参数: $2"
-        dprint "注意: 文件参数暂不支持，将通过磁盘重定向访问文件"
-        $CLIENT_COMMAND \
-        /cert:tofu \
+
+        if [ "$CLIENT_PID" -ne -1 ]; then
+            touch "${APPDATA_PATH}/Process_${CLIENT_PID}.cproc"
+            wait "$CLIENT_PID"
+            local exit_code=$?
+            local end_time
+            end_time=$(date +%s)
+            local duration=$((end_time - start_time))
+            rm -f "${APPDATA_PATH}/Process_${CLIENT_PID}.cproc"
+            dprint "会话结束 (退出码: $exit_code, 运行: ${duration}秒)"
+
+            # 运行超过 5 秒说明连接成功，用户正常关闭应用，不重试
+            if [ "$duration" -gt 5 ]; then
+                dprint "应用正常会话结束，不重试"
+                return
+            fi
+
+            # 已达到最大重试次数
+            if [ "$attempt" -ge $max_attempts ]; then
+                return
+            fi
+
+            # 快速失败（< 5秒）：连接失败，可能是无已存在的 Windows 会话
+            dprint "RemoteApp 快速失败 (${duration}秒)，执行预登录后重试..."
+            doPreLogin
+        fi
+
+        attempt=$((attempt + 1))
+    done
+}
+
+# 函数名：doPreLogin
+# 角色：在虚拟显示上执行预登录，建立 Windows RDP 会话
+function doPreLogin() {
+    dprint "执行预登录，建立 Windows 会话..."
+
+    # 尝试使用 Xvfb 虚拟显示（完全不可见）
+    local USE_XVFB=false
+    local XVFB_DISPLAY=:98
+    local XVFB_PID=""
+
+    if command -v Xvfb &>/dev/null; then
+        # 清理可能残留的 Xvfb 进程
+        if [ -f "${APPDATA_PATH}/.xvfb_pid" ]; then
+            local old_pid
+            old_pid=$(cat "${APPDATA_PATH}/.xvfb_pid" 2>/dev/null)
+            [ -n "$old_pid" ] && kill "$old_pid" &>/dev/null 2>&1
+            rm -f "${APPDATA_PATH}/.xvfb_pid"
+        fi
+
+        Xvfb "$XVFB_DISPLAY" -screen 0 1024x768x24 &>/dev/null &
+        XVFB_PID=$!
+        sleep 1
+        if kill -0 "$XVFB_PID" 2>/dev/null; then
+            USE_XVFB=true
+            echo "$XVFB_PID" > "${APPDATA_PATH}/.xvfb_pid"
+            dprint "使用 Xvfb 虚拟显示 ($XVFB_DISPLAY, 1024x768)"
+        fi
+    fi
+
+    # 在虚拟显示或当前显示上执行预登录（全桌面模式，不用 /app:program）
+    local login_display="$DISPLAY"
+    [ "$USE_XVFB" = true ] && login_display="$XVFB_DISPLAY"
+
+    DISPLAY="$login_display" $CLIENT_COMMAND \
+        /cert:ignore \
         /v:"$WS_IP:$WS_PORT" \
         /u:"$WS_USER" \
         ${RDP_PASSWORD_ARG} \
-        +auto-reconnect \
-        /app:program:"$WIN_EXECUTABLE" \
-        ${DRIVE_ARGS} \
-        +clipboard &>/dev/null &
+        +clipboard \
+        /size:1024x768 \
+        /timeout:30000 >>"$LOG_PATH" 2>&1 &
+    local login_pid=$!
 
-        CLIENT_PID=$!
+    # 记录日志起始位置，用于检测连接成功
+    local log_lines
+    log_lines=$(wc -l < "$LOG_PATH" 2>/dev/null || echo 0)
+
+    # 等待连接建立：检测到 GDI 初始化即表示会话已成功
+    local waited=0
+    while [ $waited -lt 15 ]; do
+        sleep 1
+        waited=$((waited + 1))
+        # 进程已退出（可能连接失败）
+        [ ! -d "/proc/$login_pid" ] 2>/dev/null && break
+        # 检测连接成功：GDI 初始化 = 桌面会话已建立
+        if tail -n +"$((log_lines + 1))" "$LOG_PATH" 2>/dev/null | grep -q "gdi_init_ex"; then
+            dprint "预登录会话已建立（${waited}秒），额外缓冲 3 秒..."
+            sleep 3
+            break
+        fi
+    done
+
+    # 终止预登录连接：先 SIGTERM 优雅断开，再 SIGKILL
+    if [ -d "/proc/$login_pid" ] 2>/dev/null; then
+        kill -15 "$login_pid" &>/dev/null 2>&1
+        for _ in {1..3}; do
+            [ ! -d "/proc/$login_pid" ] 2>/dev/null && break
+            sleep 1
+        done
+        [ -d "/proc/$login_pid" ] 2>/dev/null && kill -9 "$login_pid" &>/dev/null 2>&1
+    fi
+    wait "$login_pid" &>/dev/null 2>&1
+
+    # 等待 Windows 处理断开，将会话转入 disconnected 状态
+    dprint "预登录连接已断开，等待 Windows 释放会话..."
+    sleep 3
+
+    # 清理 Xvfb
+    if [ "$USE_XVFB" = true ] && [ -n "$XVFB_PID" ]; then
+        kill "$XVFB_PID" &>/dev/null 2>&1
+        wait "$XVFB_PID" &>/dev/null 2>&1
+        rm -f "${APPDATA_PATH}/.xvfb_pid"
     fi
 
-    if [ "$CLIENT_PID" -ne -1 ]; then
-        touch "${APPDATA_PATH}/Process_${CLIENT_PID}.cproc"
-        wait "$CLIENT_PID"
-        rm -f "${APPDATA_PATH}/Process_${CLIENT_PID}.cproc"
-        dprint "会话结束"
-    fi
+    dprint "预登录完成"
 }
 
 # 函数名：checkIdle
@@ -548,6 +745,7 @@ fi
 
 checkPortOpen
 timeSync
+
 runCommand "$@"
 
 if [[ "$AUTOPAUSE" == "on" ]]; then
